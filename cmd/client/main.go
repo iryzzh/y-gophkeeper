@@ -6,9 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/iryzzh/gophkeeper/internal/store/sqlite"
-
 	"github.com/iryzzh/gophkeeper/internal/client"
+	"github.com/iryzzh/gophkeeper/internal/store/sqlite"
 )
 
 func main() {
