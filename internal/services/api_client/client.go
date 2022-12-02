@@ -92,6 +92,8 @@ func (ac *ApiClient) parseToken(token string) error {
 	ac.cfg.AT = t.AccessToken
 	ac.cfg.RT = t.RefreshToken
 
+	ac.resty.SetAuthToken(t.AccessToken)
+
 	return nil
 }
 
@@ -145,6 +147,9 @@ func (ac *ApiClient) GetItems() ([]*models.Item, error) {
 			resp, err := ac.resty.R().Get(apiItemEndpoint)
 			if err != nil {
 				return nil, err
+			}
+			if resp.StatusCode() == http.StatusNoContent {
+				return itemsTotal, nil
 			}
 			if resp.StatusCode() != http.StatusOK {
 				return nil, fmt.Errorf("remote get items failed: %v", resp.String())

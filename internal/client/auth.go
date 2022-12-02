@@ -44,6 +44,10 @@ func (c *Client) auth(cCtx *cli.Context) error {
 		return err
 	}
 
+	if err := c.pull(cCtx.Context); err != nil {
+		return err
+	}
+
 	color.Green("✅ success!")
 
 	return nil

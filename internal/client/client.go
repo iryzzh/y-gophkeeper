@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/iryzzh/y-gophkeeper/internal/config"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
 	"github.com/iryzzh/y-gophkeeper/internal/services/api_client"
 	"github.com/iryzzh/y-gophkeeper/internal/services/item"
 	"github.com/iryzzh/y-gophkeeper/internal/services/user"
@@ -57,10 +58,21 @@ func (c *Client) Run(ctx context.Context) error {
 	return c.app.RunContext(ctx, os.Args)
 }
 
-func (c *Client) updateToken() error {
-	if err := c.clientSvc.RefreshToken(); err != nil {
+func (c *Client) pull(ctx context.Context) error {
+	var err error
+	if err = c.clientSvc.RefreshToken(); err != nil {
 		return err
 	}
 
-	return c.cfg.SaveConfig()
+	var items []*models.Item
+	if items, err = c.clientSvc.GetItems(); err != nil {
+		return err
+	}
+	for _, value := range items {
+		if err = c.itemSvc.Create(ctx, value); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
