@@ -100,19 +100,5 @@ func (c *Client) initStore(ctx context.Context, initModel *models.Init) error {
 		return err
 	}
 
-	if err = c.clientSvc.RefreshToken(); err != nil {
-		return err
-	}
-
-	var items []*models.Item
-	if items, err = c.clientSvc.GetItems(); err != nil {
-		return err
-	}
-	for _, item := range items {
-		if err = c.itemSvc.Create(ctx, item); err != nil {
-			return err
-		}
-	}
-
 	return c.cfg.SaveConfig()
 }
