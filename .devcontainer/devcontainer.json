@@ -1,0 +1,112 @@
+{
+    "name": "gophkeeper-dev",
+    "build": {
+        "dockerfile": "./Dockerfile",
+        "context": "."
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:1": {
+            "installZsh": "true",
+            "username": "vscode",
+            "uid": "1000",
+            "gid": "1000",
+            "upgradePackages": "true"
+        },
+        "ghcr.io/devcontainers/features/go:1": {
+            "version": "1.19.3"
+        },
+        "ghcr.io/guiyomh/features/gotestsum:0": {},
+        "ghcr.io/devcontainers/features/git:1": {
+            "version": "latest",
+            "ppa": "false"
+        }
+    },
+    "runArgs": [
+        "--cap-add=SYS_PTRACE",
+        "--security-opt",
+        "seccomp=unconfined"
+    ],
+    // Configure tool-specific properties.
+    "customizations": {
+        // Configure properties specific to VS Code.
+        "vscode": {
+            // Set *default* container specific settings.json values on container create.
+            "settings": {
+                "go.toolsManagement.checkForUpdates": "local",
+                "go.useLanguageServer": true,
+                "go.gopath": "/go",
+                "go.testOnSave": false,
+                "go.vetOnSave": "package",
+                "go.coverOnTestPackage": false,
+                "go.formatTool": "gofumpt",
+                "go.lintTool": "golangci-lint",
+                "go.lintFlags": [
+                    "-c",
+                    "./golangci.yml",
+                    "--issues-exit-code=0"
+                ],
+                "go.testFlags": [
+                    "-v"
+                ],
+                "go.lintOnSave": "file",
+                "go.languageServerFlags": [
+                    "-rpc.trace",
+                    "serve",
+                    "--debug=localhost:6060"
+                ],
+                "go.editorContextMenuCommands": {
+                    "testFile": true
+                },
+                "go.useCodeSnippetsOnFunctionSuggest": true,
+                "go.useCodeSnippetsOnFunctionSuggestWithoutType": true,
+                "gopls": {
+                    "gofumpt": true,
+                    "ui.semanticTokens": true,
+                    "codelenses": {
+                        "gc_details": true
+                    },
+                    "staticcheck": true,
+                    "completeUnimported": true
+                },
+                "go.autocompleteUnimportedPackages": true,
+                "go.gotoSymbol.includeImports": true,
+                "go.gotoSymbol.includeGoroot": true,
+                "go.languageServerExperimentalFeatures": {
+                    "diagnostics": true
+                },
+                "go.liveErrors": {
+                    "enabled": true,
+                    "delay": 500
+                },
+                "go.trace.server": "verbose",
+                "[go]": {
+                    "editor.formatOnSave": true,
+                    "editor.codeActionsOnSave": {
+                        "source.organizeImports": true
+                    },
+                    "editor.defaultFormatter": "golang.go",
+                    "editor.semanticHighlighting.enabled": true
+                }
+            },
+            // Add the IDs of extensions you want installed when the container is created.
+            "extensions": [
+                "golang.Go",
+                "formulahendry.code-runner",
+                "neverik.go-critic",
+                "1pkg.gopium",
+                "premparihar.gotestexplorer",
+                "hbenl.vscode-test-explorer",
+                "ms-vscode.test-adapter-converter",
+                "eamodio.gitlens",
+                "donjayamanne.githistory",
+                "streetsidesoftware.code-spell-checker",
+                "wayou.vscode-todo-highlight",
+                "Gruntfuggly.todo-tree",
+                "zxh404.vscode-proto3"
+            ]
+        }
+    },
+    // "forwardPorts": [],
+    "postCreateCommand": "git config --global core.autocrlf false && git config --global --add safe.directory /workspaces/gophkeeper",
+    "remoteUser": "vscode"
+}
