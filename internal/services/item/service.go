@@ -3,12 +3,12 @@ package item
 import (
 	"context"
 	"fmt"
-	"log"
+	"strconv"
 
 	"github.com/pkg/errors"
 
-	"github.com/iryzzh/gophkeeper/internal/models"
-	"github.com/iryzzh/gophkeeper/internal/store"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/store"
 )
 
 var (
@@ -31,7 +31,6 @@ func NewService(s store.Store) *Service {
 // Create creates a new item in the database.
 func (s *Service) Create(ctx context.Context, item *models.Item) error {
 	err := s.store.Item().Create(ctx, item)
-	log.Printf("item create svc err: %v", err)
 
 	return err
 }
@@ -51,17 +50,35 @@ func (s *Service) FindByID(ctx context.Context, userID, id string) (*models.Item
 	return item, err
 }
 
-// FindByUserID returns a set of items.
-func (s *Service) FindByUserID(ctx context.Context, userID string, page any) ([]*models.Item, int, error) {
-	// already checked in `pagination` func
-	p, _ := page.(int)
-
-	items, pages, err := s.store.Item().FindByUserID(ctx, userID, p)
+// FindByMetaName returns the item with the given meta name.
+func (s *Service) FindByMetaName(ctx context.Context, userID, metaName string) (*models.Item, error) {
+	item, err := s.store.Item().FindByMetaName(ctx, userID, metaName)
 	if errors.Is(err, store.ErrItemNotFound) {
-		return nil, 0, ErrItemNotFound
+		return nil, ErrItemNotFound
 	}
 
-	return items, pages, err
+	return item, err
+}
+
+// FindByUserID returns a set of items.
+func (s *Service) FindByUserID(ctx context.Context, userID, limit, offset string) (*models.Items, error) {
+	intLimit, _ := strconv.Atoi(limit)
+	intOffset, _ := strconv.Atoi(offset)
+
+	if intLimit == 0 {
+		intLimit = 1000
+	}
+
+	if intOffset == 0 {
+		intOffset = 0
+	}
+
+	items, err := s.store.Item().FindByUserID(ctx, userID, intLimit, intOffset)
+	if errors.Is(err, store.ErrItemNotFound) {
+		return nil, ErrItemNotFound
+	}
+
+	return items, err
 }
 
 // Update updates the item in the database.
@@ -70,14 +87,12 @@ func (s *Service) Update(ctx context.Context, item *models.Item) error {
 		item.ItemData = nil
 	}
 	err := s.store.Item().Update(ctx, item)
-	log.Printf("item update svc err: %v", err)
 	return err
 }
 
 // Delete deletes the item from the database.
 func (s *Service) Delete(ctx context.Context, item *models.Item) error {
 	err := s.store.Item().Delete(ctx, item)
-	log.Printf("item delete svc err: %v", err)
 
 	return err
 }

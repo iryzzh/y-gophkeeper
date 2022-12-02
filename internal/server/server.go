@@ -3,20 +3,15 @@ package server
 import (
 	"context"
 
-	"github.com/iryzzh/gophkeeper/internal/services/item"
-
-	"github.com/iryzzh/gophkeeper/internal/services/user"
-
-	"github.com/iryzzh/gophkeeper/internal/services/token"
-
-	"github.com/iryzzh/gophkeeper/internal/config"
-	"github.com/iryzzh/gophkeeper/internal/server/web"
-
-	"golang.org/x/sync/errgroup"
+	"github.com/iryzzh/y-gophkeeper/internal/config"
+	"github.com/iryzzh/y-gophkeeper/internal/server/web"
+	"github.com/iryzzh/y-gophkeeper/internal/services/item"
+	"github.com/iryzzh/y-gophkeeper/internal/services/token"
+	"github.com/iryzzh/y-gophkeeper/internal/services/user"
 )
 
 type Server struct {
-	webServerConfig *config.WebServerConfig
+	webServerConfig *config.WebConfig
 	debug           bool
 	tokenSvc        *token.Service
 	userSvc         *user.Service
@@ -24,7 +19,7 @@ type Server struct {
 }
 
 func NewServer(
-	webServerConfig *config.WebServerConfig,
+	webServerConfig *config.WebConfig,
 	tokenSvc *token.Service,
 	userSvc *user.Service,
 	itemSvc *item.Service,
@@ -40,8 +35,6 @@ func NewServer(
 }
 
 func (s *Server) Run(ctx context.Context) error {
-	g, childCtx := errgroup.WithContext(ctx)
-
 	apiSrv := web.NewServer(
 		s.webServerConfig.Network,
 		s.webServerConfig.ServerAddress,
@@ -54,9 +47,5 @@ func (s *Server) Run(ctx context.Context) error {
 		s.debug,
 	)
 
-	g.Go(func() error {
-		return apiSrv.Run(childCtx)
-	})
-
-	return g.Wait()
+	return apiSrv.Run(ctx)
 }

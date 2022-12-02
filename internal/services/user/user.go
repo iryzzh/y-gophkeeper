@@ -3,12 +3,11 @@ package user
 import (
 	"context"
 	"errors"
-	"net/http"
 
 	"github.com/alexedwards/argon2id"
 	"github.com/google/uuid"
-	"github.com/iryzzh/gophkeeper/internal/models"
-	"github.com/iryzzh/gophkeeper/internal/store"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/store"
 )
 
 var (
@@ -16,6 +15,8 @@ var (
 	ErrPasswordCannotBeEmpty = errors.New("password cannot be empty")
 	// ErrInvalidUser returns when the user is invalid.
 	ErrInvalidUser = errors.New("invalid user")
+	// ErrUserExists returns when the user already exists.
+	ErrUserExists = errors.New("user exists")
 	// ErrLoginOrPasswordIsInvalid returns when the login or password is invalid.
 	ErrLoginOrPasswordIsInvalid = errors.New("login or password is invalid")
 	// ErrUserNotFound returns when the user is not found.
@@ -42,32 +43,33 @@ func NewService(s store.Store, hashMemory, hashIterations uint32, hashParallelis
 	}
 }
 
-// Create encrypts the received password, creates a new user in the database and, if successful, returns the
-// `models.User` struct
-func (s *Service) Create(ctx context.Context, user, password string) (*models.User, int, error) {
-	if user == "" {
-		return nil, http.StatusBadRequest, ErrInvalidUser
+// Create encrypts the user's password and creates that user in the database.
+func (s *Service) Create(ctx context.Context, user *models.User) error {
+	if user == nil {
+		return ErrInvalidUser
 	}
-	if password == "" {
-		return nil, http.StatusBadRequest, ErrPasswordCannotBeEmpty
+	if user.Password == "" {
+		return ErrPasswordCannotBeEmpty
 	}
 
-	hash, err := argon2id.CreateHash(password, s.argon2idParams)
+	hash, err := argon2id.CreateHash(user.Password, s.argon2idParams)
 	if err != nil {
-		return nil, http.StatusInternalServerError, err
+		return err
 	}
 
-	u := &models.User{
-		ID:           uuid.NewString(),
-		Login:        user,
-		PasswordHash: hash,
+	user.PasswordHash = hash
+
+	if user.ID == "" {
+		user.ID = uuid.New().String()
 	}
-	_, err = s.store.User().Create(ctx, u)
+
+	defer user.Sanitize()
+	err = s.store.User().Create(ctx, user)
 	if errors.Is(err, store.ErrUserAlreadyExists) {
-		return nil, http.StatusConflict, err
+		return ErrUserExists
 	}
 
-	return u, http.StatusCreated, nil
+	return err
 }
 
 func (s *Service) Login(ctx context.Context, user, password string) (*models.User, error) {

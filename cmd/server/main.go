@@ -2,29 +2,32 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/iryzzh/gophkeeper/internal/services/item"
-
-	"github.com/iryzzh/gophkeeper/internal/services/user"
-
-	"github.com/iryzzh/gophkeeper/internal/services/token"
-	"github.com/iryzzh/gophkeeper/internal/store"
-	"github.com/iryzzh/gophkeeper/internal/store/sqlite"
-
-	"github.com/iryzzh/gophkeeper/internal/config"
-	"github.com/iryzzh/gophkeeper/internal/server"
-	"golang.org/x/sync/errgroup"
+	"github.com/iryzzh/y-gophkeeper/internal/config"
+	"github.com/iryzzh/y-gophkeeper/internal/server"
+	"github.com/iryzzh/y-gophkeeper/internal/services/item"
+	"github.com/iryzzh/y-gophkeeper/internal/services/token"
+	"github.com/iryzzh/y-gophkeeper/internal/services/user"
+	"github.com/iryzzh/y-gophkeeper/internal/store"
+	"github.com/iryzzh/y-gophkeeper/internal/store/sqlite"
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 	defer stop()
 
-	cfg, err := config.NewConfig()
+	cfg, err := config.NewServerConfig()
 	if err != nil {
 		panic(err)
 	}
@@ -34,13 +37,13 @@ func main() {
 	case "sqlite3":
 		st, err = sqlite.NewStore(cfg.DB.DSN, cfg.DB.MigrationsPath)
 		if err != nil {
-			panic("store: " + err.Error())
+			return fmt.Errorf("store init: %v", err.Error())
 		}
 	default:
-		panic("init: not implemented DB type: " + cfg.DB.Type)
+		return fmt.Errorf("not implemented DB type: %v", cfg.DB.Type)
 	}
 
-	log.Println(cfg.GetVersion())
+	fmt.Println(cfg.Version.String())
 
 	tokenSvc := token.NewService(
 		st,
@@ -61,14 +64,11 @@ func main() {
 
 	itemSvc := item.NewService(st)
 
-	srv := server.NewServer(&cfg.WebServer, tokenSvc, userSvc, itemSvc, true)
+	srv := server.NewServer(&cfg.Web, tokenSvc, userSvc, itemSvc, true)
 
-	var g errgroup.Group
-	g.Go(func() error {
-		return srv.Run(ctx)
-	})
-
-	if err = g.Wait(); err != nil {
-		panic(err)
+	if err := srv.Run(ctx); err != nil {
+		return fmt.Errorf("server run: %v", err.Error())
 	}
+
+	return nil
 }

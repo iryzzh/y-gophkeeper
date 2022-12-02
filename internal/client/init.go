@@ -1,63 +1,118 @@
 package client
 
 import (
+	"context"
 	"fmt"
-	"net/http"
 	"os"
+	"path/filepath"
 
-	"gopkg.in/yaml.v2"
-
-	"github.com/iryzzh/gophkeeper/internal/models"
-
+	"github.com/fatih/color"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/tui"
 	"github.com/urfave/cli/v2"
 )
 
-func (c *Client) init(cCtx *cli.Context) error {
-	//TODO: return an error if the db has already been initialised
-	remote := cCtx.String("remote")
-	login := cCtx.String("login")
-	password := cCtx.String("password")
-
-	if remote == "" || login == "" || password == "" {
-		return fmt.Errorf("usage: init <remote> <login> <password>")
+// isInitialized checks for existing configuration.
+func (c *Client) isInitialized(cCtx *cli.Context) error {
+	printMsg := func() {
+		executable, _ := os.Executable()
+		base := filepath.Base(executable)
+		var name string
+		if base == "" {
+			name = cCtx.App.Name
+		} else {
+			name = base
+		}
+		fmt.Printf("%v\n", logo)
+		fmt.Printf("Existing configuration not found.\n")
+		fmt.Printf("☝ Please run '%s init'\n", name)
 	}
 
-	//TODO: validate remote address
-	resp, respErr := restyPost(fmt.Sprintf("%v/%v", remote, signupURL), "", models.User{
-		Login:    login,
-		Password: password,
-	})
-	if respErr != nil {
-		return respErr
-	}
-
-	if resp.StatusCode() == http.StatusConflict {
-		return fmt.Errorf("init: user already exists")
-	}
-
-	if resp.StatusCode() == http.StatusCreated {
-		return c.initConfig(resp.Body(), remote, login)
-	}
-
-	return fmt.Errorf("unexpected response from remote: %v, code: %v", resp.String(), resp.StatusCode())
-}
-
-func (c *Client) initConfig(in []byte, remote, login string) error {
-	var token models.Token
-	if err := c.json.Unmarshal(in, &token); err != nil {
-		return err
-	}
-
-	config := &LocalConfig{
-		Remote:       remote,
-		AccessToken:  token.AccessToken,
-		RefreshToken: token.RefreshToken,
-		Login:        login,
-	}
-	yamlData, err := yaml.Marshal(&config)
+	initialized, err := c.store.IsUsersExist()
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(c.configFile, yamlData, 0o600) //nolint:gomnd
+	if !initialized {
+		printMsg()
+		return cli.Exit("", 1)
+	}
+
+	return nil
+}
+
+// init initializes the configuration.
+func (c *Client) init(cCtx *cli.Context) error {
+	initModel := &models.Init{
+		Remote: cCtx.String("remote"),
+		User: &models.User{
+			Login:    cCtx.String("user"),
+			Password: cCtx.String("password")},
+	}
+
+	fmt.Printf("%v\n", logo)
+	fmt.Printf("Initializing a new %v\n", cCtx.App.Name)
+
+	if !cCtx.IsSet("remote") && !cCtx.IsSet("user") && !cCtx.IsSet("password") {
+		err := tui.AskInit(initModel)
+		if err != nil {
+			return err
+		}
+	}
+
+	if initModel.Remote == "" || initModel.User.Login == "" || initModel.User.Password == "" {
+		return cli.Exit("usage: init <remote> <auth> <password>", 1)
+	}
+
+	if err := c.initStore(cCtx.Context, initModel); err != nil {
+		return err
+	}
+
+	color.Green("✅ initialization completed successfully!")
+	return nil
+}
+
+func (c *Client) initStore(ctx context.Context, initModel *models.Init) error {
+	usersExist, err := c.store.IsUsersExist()
+	if err != nil {
+		return err
+	}
+
+	if usersExist {
+		color.Red("❌ The store has already been initialized")
+		var confirm bool
+		if err = tui.AskConfirm("continue?", &confirm); err != nil {
+			return err
+		}
+		if !confirm {
+			color.Yellow("canceled")
+			return cli.Exit("", 1)
+		}
+	}
+
+	c.clientSvc.SetBaseURL(initModel.Remote)
+
+	if err = c.clientSvc.Signup(initModel.User); err != nil {
+		return err
+	}
+
+	if err = c.userSvc.Create(ctx, initModel.User); err != nil {
+		return err
+	}
+
+	if err = c.clientSvc.RefreshToken(); err != nil {
+		return err
+	}
+
+	var items []*models.Item
+	if items, err = c.clientSvc.GetItems(); err != nil {
+		return err
+	}
+	for _, item := range items {
+		if err = c.itemSvc.Create(ctx, item); err != nil {
+			return err
+		}
+	}
+
+	return c.cfg.SaveConfig()
 }

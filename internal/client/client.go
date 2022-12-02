@@ -2,162 +2,65 @@ package client
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"net/http"
 	"os"
-	"sort"
 
-	"github.com/iryzzh/gophkeeper/internal/models"
-	"github.com/iryzzh/gophkeeper/internal/store"
-
-	"github.com/golang-jwt/jwt/v4"
-	"github.com/iryzzh/gophkeeper/internal/store/sqlite"
+	"github.com/iryzzh/y-gophkeeper/internal/config"
+	"github.com/iryzzh/y-gophkeeper/internal/services/api_client"
+	"github.com/iryzzh/y-gophkeeper/internal/services/item"
+	"github.com/iryzzh/y-gophkeeper/internal/services/user"
+	"github.com/iryzzh/y-gophkeeper/internal/store"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/urfave/cli/v2"
-	"gopkg.in/yaml.v2"
-)
-
-const (
-	signupURL       = "api/v1/signup"
-	loginURL        = "api/v1/login"
-	itemURL         = "api/v1/item"
-	tokenRefreshURL = "api/v1/token/refresh"
-	pingURL         = "api/v1/ping"
 )
 
 type Client struct {
-	app        *cli.App
-	configFile string
-	json       jsoniter.API
-	s          *sqlite.Store
-	userUUID   string
-	cfg        LocalConfig
+	json      jsoniter.API
+	store     store.Store
+	app       *cli.App
+	cfg       *config.ClientCfg
+	userSvc   *user.Service
+	itemSvc   *item.Service
+	clientSvc *api_client.ApiClient
 }
 
-type LocalConfig struct {
-	Remote       string `yaml:"remote"`
-	AccessToken  string `yaml:"access_token"`
-	RefreshToken string `yaml:"refresh_token"`
-	Login        string `yaml:"login"`
-}
-
-func NewClient(_ context.Context, s *sqlite.Store) *Client {
+func NewClient(cfg *config.ClientCfg, s store.Store) *Client {
 	c := &Client{
-		s:          s,
-		configFile: "config.yml",
-		json:       jsoniter.ConfigCompatibleWithStandardLibrary,
+		cfg:   cfg,
+		store: s,
+		json:  jsoniter.ConfigCompatibleWithStandardLibrary,
 	}
-	c.app = c.setupApp()
+
+	c.userSvc = user.NewService(
+		s,
+		cfg.Security.HashMemory,
+		cfg.Security.HashIterations,
+		cfg.Security.HashParallelism,
+		cfg.Security.SaltLength,
+		cfg.Security.KeyLength,
+	)
+
+	c.itemSvc = item.NewService(s)
+
+	c.clientSvc = api_client.NewApiClient(&cfg.API, cfg.SkipVerify)
+
+	commands := c.getCommands()
+	c.app = &cli.App{
+		Commands: commands,
+	}
+	c.app.Name = "gophkeeper-cli"
+	c.app.Version = cfg.Version.Version
 
 	return c
 }
 
-func (c *Client) Run() error {
-	if err := c.ping(); err != nil {
+func (c *Client) Run(ctx context.Context) error {
+	return c.app.RunContext(ctx, os.Args)
+}
+
+func (c *Client) updateToken() error {
+	if err := c.clientSvc.RefreshToken(); err != nil {
 		return err
 	}
 
-	return c.app.Run(os.Args)
-}
-
-func (c *Client) setupApp() *cli.App {
-	c.readConfig()
-
-	commands := c.getCommands()
-	app := &cli.App{
-		Commands: commands,
-	}
-
-	return app
-}
-
-func (c *Client) readConfig() {
-	file, err := os.ReadFile(c.configFile)
-	if err != nil {
-		return
-	}
-
-	var config LocalConfig
-	if err := yaml.Unmarshal(file, &config); err != nil {
-		return
-	}
-
-	c.cfg = config
-
-	c.readUserUUID(config.AccessToken)
-}
-
-func (c *Client) readUserUUID(tokenStr string) {
-	token, _ := jwt.Parse(tokenStr, nil)
-	if token == nil {
-		return
-	}
-
-	if claims, ok := token.Claims.(jwt.MapClaims); ok {
-		for k, v := range claims {
-			if k == "user_id" {
-				if uuid, ok := v.(string); ok {
-					c.userUUID = uuid
-				}
-
-				return
-			}
-		}
-	}
-}
-
-func (c *Client) getAllItems(ctx context.Context) ([]*models.Item, error) {
-	var itemsTotal []*models.Item
-	for i := 1; ; i++ {
-		items, page, err := c.s.Item().FindByUserID(ctx, c.userUUID, i)
-		if err != nil {
-			if errors.Is(err, store.ErrItemNotFound) {
-				return nil, fmt.Errorf("no items")
-			}
-			return nil, err
-		}
-		itemsTotal = append(itemsTotal, items...)
-		if i == page {
-			break
-		}
-	}
-
-	sort.Slice(itemsTotal, func(i, j int) bool {
-		return itemsTotal[i].Meta < itemsTotal[j].Meta
-	})
-	return itemsTotal, nil
-}
-
-func (c *Client) ping() error {
-	client := newClient(c.cfg.AccessToken)
-	resp, err := client.R().Get(fmt.Sprintf("%v/%v", c.cfg.Remote, pingURL))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode() == http.StatusUnauthorized {
-		return c.refreshToken()
-	}
-	if resp.StatusCode() != http.StatusOK {
-		return fmt.Errorf("unexpected response from remote: %v, code: %v", resp.String(), resp.StatusCode())
-	}
-
-	return nil
-}
-
-func (c *Client) refreshToken() error {
-	client := newClient("")
-
-	resp, err := client.R().SetBody(models.Token{RefreshToken: c.cfg.RefreshToken}).
-		Post(fmt.Sprintf("%v/%v", c.cfg.Remote, tokenRefreshURL))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode() != http.StatusCreated {
-		return fmt.Errorf("unexpected status code: %d, msg: %v", resp.StatusCode(), resp.String())
-	}
-
-	fmt.Printf("send body: %v\n", resp.String())
-
-	return c.initConfig(resp.Body(), c.cfg.Remote, c.cfg.Login)
+	return c.cfg.SaveConfig()
 }

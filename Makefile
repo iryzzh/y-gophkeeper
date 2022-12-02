@@ -3,5 +3,5 @@ test:
 	@go test -v -race -timeout 30s ./...
 
 .PHONY: statictest
-statictest:
-	@go vet -vettool="$(shell which statictest)" ./...
+lint:
+	@golangci-lint run --no-config --disable-all -E govet

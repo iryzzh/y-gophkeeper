@@ -11,10 +11,10 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 
 	"github.com/google/uuid"
-	"github.com/iryzzh/gophkeeper/internal/models"
-	"github.com/iryzzh/gophkeeper/internal/store"
-	"github.com/iryzzh/gophkeeper/internal/store/sqlite"
-	"github.com/iryzzh/gophkeeper/internal/utils"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/store"
+	"github.com/iryzzh/y-gophkeeper/internal/store/sqlite"
+	"github.com/iryzzh/y-gophkeeper/internal/utils"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
 )
@@ -25,7 +25,8 @@ func testStore(t *testing.T) store.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := sqlite.NewStore(cfg.DB.DSN, cfg.DB.MigrationsPath)
+
+	st, err := sqlite.NewStore(cfg.DB.DSN, "../../../migrations")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,11 +105,12 @@ func TestService_ValidateToken(t *testing.T) {
 				rtExpiresIn:   10080,
 			},
 			user: func(st store.Store) *models.User {
-				user, err := st.User().Create(context.Background(), &models.User{
+				user := &models.User{
 					ID:           uuid.NewString(),
 					Login:        "test-user",
 					PasswordHash: "test-password",
-				})
+				}
+				err := st.User().Create(context.Background(), user)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -163,11 +165,12 @@ func TestService_RefreshToken(t *testing.T) {
 				rtExpiresIn:   10080,
 			},
 			user: func(st store.Store) *models.User {
-				user, err := st.User().Create(context.Background(), &models.User{
+				user := &models.User{
 					ID:           uuid.NewString(),
 					Login:        "test-user",
 					PasswordHash: "test-password",
-				})
+				}
+				err := st.User().Create(context.Background(), user)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -264,7 +267,7 @@ func Test_parseJWT(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := parseJWT(tt.args.tokenStr, tt.args.secret)
+			_, err := parseWithClaims(tt.args.tokenStr, tt.args.secret)
 			if !errors.Is(err, tt.wantErr) {
 				t.Logf("want err = %v, got = %v", tt.wantErr, err.Error())
 			}

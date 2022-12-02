@@ -7,15 +7,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/iryzzh/gophkeeper/internal/services/item"
+	"github.com/iryzzh/y-gophkeeper/internal/services/item"
 
-	"github.com/iryzzh/gophkeeper/internal/services/user"
+	"github.com/iryzzh/y-gophkeeper/internal/services/user"
 
-	"github.com/iryzzh/gophkeeper/internal/services/token"
+	"github.com/iryzzh/y-gophkeeper/internal/services/token"
 
 	"github.com/go-chi/chi/v5"
-	v1 "github.com/iryzzh/gophkeeper/internal/server/web/api/v1"
-	"github.com/iryzzh/gophkeeper/internal/tlsutil"
+	v1 "github.com/iryzzh/y-gophkeeper/internal/server/web/api/v1"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
@@ -116,13 +115,7 @@ func (s *Server) getListener() (net.Listener, error) {
 	if s.enableHTTPS {
 		cert, err := tls.LoadX509KeyPair(s.tlsCertPath, s.tlsKeyPath)
 		if err != nil {
-			fmt.Println("Loading certificate: ", err)
-			fmt.Println("Creating a new certificate")
-
-			cert, err = tlsutil.NewCertificate(s.tlsCertPath, s.tlsKeyPath, "gophkeeper")
-			if err != nil {
-				return nil, err
-			}
+			return nil, fmt.Errorf("failed to load certificate: %v", err)
 		}
 
 		tlsConfig := &tls.Config{

@@ -8,26 +8,24 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
-	"sort"
-	"strings"
 	"testing"
 
-	"github.com/iryzzh/gophkeeper/internal/rand"
+	"github.com/iryzzh/y-gophkeeper/internal/rand"
+	"github.com/stretchr/testify/assert"
 
-	"github.com/iryzzh/gophkeeper/internal/services/item"
+	"github.com/iryzzh/y-gophkeeper/internal/services/item"
 
-	"github.com/iryzzh/gophkeeper/internal/store/sqlite"
+	"github.com/iryzzh/y-gophkeeper/internal/store/sqlite"
 
-	"github.com/iryzzh/gophkeeper/internal/store"
+	"github.com/iryzzh/y-gophkeeper/internal/store"
 
-	"github.com/iryzzh/gophkeeper/internal/services/token"
-	"github.com/iryzzh/gophkeeper/internal/services/user"
+	"github.com/iryzzh/y-gophkeeper/internal/services/token"
+	"github.com/iryzzh/y-gophkeeper/internal/services/user"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-resty/resty/v2"
-	"github.com/iryzzh/gophkeeper/internal/models"
-	"github.com/iryzzh/gophkeeper/internal/utils"
-	"github.com/stretchr/testify/assert"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +35,7 @@ func testStore(t *testing.T) *sqlite.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := sqlite.NewStore(cfg.DB.DSN, cfg.DB.MigrationsPath)
+	st, err := sqlite.NewStore(cfg.DB.DSN, "../../../../../migrations")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,54 +97,54 @@ func testService(t *testing.T) (tokenSvc *token.Service, userSvc *user.Service, 
 }
 
 func TestAPI_SignUp(t *testing.T) {
-	tSvc, uSvc, iSvc, st := testService(t)
-	ts, err := newTestServer(t, tSvc, uSvc, iSvc)
-	require.NoError(t, err)
-	defer func() {
-		ts.Close()
-		_ = st.Close()
-	}()
-
-	url := fmt.Sprintf("%v/api/v1/signup", ts.URL)
-
 	tests := []struct {
-		name    string
-		payload map[string]interface{}
-		want    int
+		name string
+		user *models.User
+		want int
 	}{
 		{
 			name: "ok",
-			payload: map[string]interface{}{
-				"Login":    "test",
-				"Password": "test",
+			user: &models.User{
+				Login:    "test",
+				Password: "test",
 			},
 			want: http.StatusCreated,
 		},
 		{
 			name: "conflict",
-			payload: map[string]interface{}{
-				"Login":    "test",
-				"Password": "test",
+			user: &models.User{
+				Login:    "test",
+				Password: "test",
 			},
 			want: http.StatusConflict,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			tSvc, uSvc, iSvc, st := testService(t)
+			ts, err := newTestServer(t, tSvc, uSvc, iSvc)
+			require.NoError(t, err)
+			defer func() {
+				ts.Close()
+				_ = st.Close()
+			}()
+
+			url := fmt.Sprintf("%v/api/v1/signup", ts.URL)
+
 			if tt.want == http.StatusConflict {
-				_, _, _ = uSvc.Create(context.Background(),
-					tt.payload["Login"].(string), tt.payload["Password"].(string))
+				_ = st.User().Create(context.Background(), tt.user)
 			}
+
+			b, err := tt.user.Marshal()
+			require.NoError(t, err)
+
 			client := resty.New()
 			resp, err := client.R().
 				SetHeader("Accept", "application/json").
-				SetBody(tt.payload).
+				SetBody(b).
 				Post(url)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, resp.StatusCode())
-			if tt.want < 400 {
-				require.True(t, strings.Contains(resp.Header().Get("Content-Type"), "application/json"))
-			}
 		})
 	}
 }
@@ -154,18 +152,21 @@ func TestAPI_SignUp(t *testing.T) {
 func TestAPI_login(t *testing.T) {
 	tests := []struct {
 		name      string
-		payload   map[string]interface{}
 		want      int
 		runBefore func(svc *user.Service) error
+		user      *models.User
 	}{
 		{
 			name: "ok",
-			payload: map[string]interface{}{
-				"Login":    "test",
-				"Password": "test",
+			user: &models.User{
+				Login:    "test",
+				Password: "test",
 			},
 			runBefore: func(svc *user.Service) error {
-				_, _, err := svc.Create(context.Background(), "test", "test")
+				err := svc.Create(context.Background(), &models.User{
+					Login:    "test",
+					Password: "test",
+				})
 				return err
 			},
 			want: http.StatusOK,
@@ -185,10 +186,13 @@ func TestAPI_login(t *testing.T) {
 
 			require.NoError(t, tt.runBefore(uSvc))
 
+			b, err := tt.user.Marshal()
+			require.NoError(t, err)
+
 			client := resty.New()
 			resp, err := client.R().
 				SetHeader("Accept", "application/json").
-				SetBody(tt.payload).
+				SetBody(b).
 				Post(url)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, resp.StatusCode())
@@ -205,7 +209,8 @@ func TestAPI_tokenRefresh(t *testing.T) {
 		{
 			name: "ok",
 			runBefore: func(uSvc *user.Service, tSvc *token.Service) (string, error) {
-				u, _, err := uSvc.Create(context.Background(), "test", "test")
+				u := &models.User{Login: "test", Password: "test"}
+				err := uSvc.Create(context.Background(), u)
 				if err != nil {
 					return "", err
 				}
@@ -239,7 +244,6 @@ func TestAPI_tokenRefresh(t *testing.T) {
 				SetHeader("Accept", "application/json").
 				SetBody(models.Token{RefreshToken: rt}).
 				Post(url)
-			t.Logf("got resp: %v\n", resp.String())
 			require.NoError(t, err)
 			require.Equal(t, tt.want, resp.StatusCode())
 		})
@@ -249,7 +253,9 @@ func TestAPI_tokenRefresh(t *testing.T) {
 func setupTestUserWithToken(t *testing.T, uSvc *user.Service, tSvc *token.Service) *models.Token {
 	t.Helper()
 
-	u, _, err := uSvc.Create(context.Background(), "test", "test")
+	u := &models.User{Login: "test", Password: "test"}
+
+	err := uSvc.Create(context.Background(), u)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +307,7 @@ func TestAPI_itemGet(t *testing.T) {
 		},
 		{
 			name:     "not found",
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusNoContent,
 			runBefore: func(st store.Store, tSvc *token.Service, uSvc *user.Service) ([]*models.Item, string) {
 				withToken := setupTestUserWithToken(t, uSvc, tSvc)
 				return []*models.Item{utils.TestItem(t, withToken.UserID)}, withToken.AccessToken
@@ -322,34 +328,35 @@ func TestAPI_itemGet(t *testing.T) {
 
 			wantItems, accessToken := tt.runBefore(st, tSvc, uSvc)
 			var itemsTotal []*models.Item
-			for i := 1; i <= len(wantItems); i++ {
-				rURL := fmt.Sprintf("%v/?page=%v", url, i)
-				client := resty.New()
-				resp, err := client.R().
-					SetHeader("Accept", "application/json").
-					SetAuthToken(accessToken).
-					Get(rURL)
-				require.NoError(t, err)
-				require.Equal(t, tt.wantCode, resp.StatusCode())
-				if resp.StatusCode() != http.StatusOK {
-					return
-				}
-				var got itemResponse
-				if err := json.Unmarshal(resp.Body(), &got); err != nil {
-					t.Fatal(err)
-				}
-				itemsTotal = append(itemsTotal, got.Data...)
-				if i == got.Meta.TotalPages {
-					require.Equal(t, len(wantItems), len(itemsTotal))
-					sort.Slice(itemsTotal, func(i, j int) bool {
-						return itemsTotal[i].ID < itemsTotal[j].ID
+
+			client := resty.New()
+			client.SetHeader("Accept", "application/json")
+			client.SetAuthToken(accessToken)
+			for i := 0; i < len(wantItems); i++ {
+				if i%10 == 0 {
+					client.SetQueryParams(map[string]string{
+						"limit":  "10",
+						"offset": fmt.Sprintf("%d", i),
 					})
-					for j := range itemsTotal {
-						assert.Equal(t, wantItems[j], itemsTotal[j])
+					resp, err := client.R().Get(url)
+					require.NoError(t, err)
+					require.Equal(t, tt.wantCode, resp.StatusCode())
+					if resp.StatusCode() != http.StatusOK {
+						return
 					}
-					return
+					got := &models.Items{}
+					if err := json.Unmarshal(resp.Body(), &got); err != nil {
+						t.Fatal(err)
+					}
+					itemsTotal = append(itemsTotal, got.Data...)
 				}
 			}
+			require.Condition(t, func() bool {
+				if tt.wantCode == http.StatusOK {
+					return assert.Equal(t, wantItems, itemsTotal)
+				}
+				return true
+			})
 		})
 	}
 }
@@ -404,11 +411,11 @@ func TestAPI_itemGetWithID(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.wantCode, resp.StatusCode())
 			if tt.wantCode == http.StatusOK {
-				var got itemResponse
+				var got models.Item
 				if err := json.Unmarshal(resp.Body(), &got); err != nil {
 					t.Fatal(err)
 				}
-				require.Equal(t, wantItem, got.Data[0])
+				require.Equal(t, wantItem, &got)
 			}
 		})
 	}
@@ -439,7 +446,7 @@ func TestAPI_itemNew(t *testing.T) {
 			}()
 
 			gotItem, accessToken := tt.runBefore(st, tSvc, uSvc)
-			bytes, err := json.Marshal(gotItem)
+			bytes, err := gotItem.Marshal()
 			require.NoError(t, err)
 
 			client := resty.New()
@@ -498,7 +505,7 @@ func TestAPI_itemSetPost(t *testing.T) {
 			}()
 
 			gotItem, accessToken := tt.runBefore(st, tSvc, uSvc)
-			bytes, err := json.Marshal(gotItem)
+			bytes, err := gotItem.Marshal()
 			require.NoError(t, err)
 
 			client := resty.New()
@@ -547,7 +554,7 @@ func TestAPI_itemSetDelete(t *testing.T) {
 			}()
 
 			gotItem, accessToken := tt.runBefore(st, tSvc, uSvc)
-			bytes, err := json.Marshal(gotItem)
+			bytes, err := gotItem.Marshal()
 			require.NoError(t, err)
 
 			client := resty.New()

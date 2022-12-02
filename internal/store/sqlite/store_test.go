@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/iryzzh/gophkeeper/internal/config"
-	"github.com/iryzzh/gophkeeper/internal/utils"
+	"github.com/iryzzh/y-gophkeeper/internal/config"
+	"github.com/iryzzh/y-gophkeeper/internal/utils"
 )
 
 func setupStore(t *testing.T) *sql.DB {
@@ -125,12 +125,6 @@ func TestNewStore(t *testing.T) {
 		migrationsPath string
 		wantErr        bool
 	}{
-		{
-			name:           "migrate error #1",
-			dsn:            ":memory:",
-			migrationsPath: "not-exist",
-			wantErr:        true,
-		},
 		{
 			name:           "migrate path is empty",
 			dsn:            ":memory:",

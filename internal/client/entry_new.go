@@ -1,99 +1,69 @@
 package client
 
 import (
-	"context"
-	"fmt"
-	"os"
-
-	"github.com/iryzzh/gophkeeper/internal/utils"
-
-	"github.com/iryzzh/gophkeeper/internal/models"
-	"github.com/iryzzh/gophkeeper/internal/tui"
+	"github.com/fatih/color"
+	"github.com/iryzzh/y-gophkeeper/internal/file"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/services/api_client"
+	"github.com/iryzzh/y-gophkeeper/internal/services/token"
+	"github.com/iryzzh/y-gophkeeper/internal/tui"
 	"github.com/urfave/cli/v2"
 )
 
-const (
-	text  = "text"
-	image = "image"
-	file  = "file"
-	card  = "card"
-)
-
 func (c *Client) entryNew(cCtx *cli.Context) error {
-	name := cCtx.String("name")
-	value := cCtx.String("value")
-	valueType := cCtx.String("type")
+	entry := &models.Entry{
+		Name:      cCtx.String("name"),
+		Value:     cCtx.String("value"),
+		EntryType: cCtx.String("type"),
+	}
+	color.Cyan("📝 creating a new entry")
 
-	var err error
-	if name == "" && value == "" {
-		name, value, valueType, err = ask()
-		if err != nil {
+	if !cCtx.IsSet("name") && !cCtx.IsSet("value") && !cCtx.IsSet("type") {
+		if err := tui.AskEntry(entry); err != nil {
 			return err
 		}
 	}
 
-	if name == "" || value == "" {
-		return fmt.Errorf("usage: add <name> <value>")
+	userID, err := token.ParseUserIDFromToken(c.cfg.API.AT)
+	if err != nil {
+		return err
+	}
+
+	var data []byte
+	if entry.EntryType == models.EntryTypeImage || entry.EntryType == models.EntryTypeFile {
+		data, err = file.Encode(entry.Value)
+		if err != nil {
+			color.Red("❌ %v", err)
+			return cli.Exit("", 1)
+		}
+	} else {
+		data = entry.EncodeBytes()
 	}
 
 	item := &models.Item{
-		UserID: c.userUUID,
-		Meta:   name,
+		UserID:   userID,
+		Meta:     entry.Name,
+		DataType: entry.EntryType,
 		ItemData: &models.ItemData{
-			Data: []byte(value),
+			Data: data,
 		},
-		DataType: valueType,
 	}
 
-	return c.s.Item().Create(context.Background(), item)
-}
-
-func ask() (name, value, valueType string, err error) {
-	name, err = tui.AskString("Name:", nil)
+	err = c.itemSvc.Create(cCtx.Context, item)
 	if err != nil {
-		return "", "", "", err
-	}
-	valueType, err = tui.AskSelect("Entry type:", entryTypes(), entryTypes()[0])
-	if err != nil {
-		return "", "", "", err
+		color.Red("❌ %v", err)
+		return cli.Exit("", 1)
 	}
 
-	switch valueType {
-	case text:
-		value, err = tui.AskString("Value:", nil)
-	case file, image:
-		value, err = tui.AskFile("File:")
-		if err != nil {
-			return "", "", "", err
-		}
-		bytes, err := os.ReadFile(value)
-		if err != nil {
-			return "", "", "", err
-		}
-		result := map[string]interface{}{
-			value: bytes,
-		}
-		r, err := utils.InterfaceToBase64(&result)
-
-		return name, string(r), valueType, err
-	case card:
-		var card models.Card
-		card, err = tui.AskCard()
-		if err != nil {
-			return "", "", "", err
-		}
-
-		var data []byte
-		data, err = card.EncodeToBase64()
-
-		return name, string(data), valueType, err
-	default:
-		return "", "", "", fmt.Errorf("invalid data type: %v", valueType)
+	if err = c.clientSvc.RefreshToken(); err != nil {
+		return err
 	}
 
-	return name, value, valueType, err
-}
+	if err = c.clientSvc.Item(item, api_client.ActionNew); err != nil {
+		return err
+	}
 
-func entryTypes() []string {
-	return []string{text, image, file, card}
+	color.Green("✅ item was successfully created!")
+
+	return nil
 }

@@ -13,5 +13,5 @@ func commit() string {
 		}
 	}
 
-	return "N/A"
+	return NA
 }

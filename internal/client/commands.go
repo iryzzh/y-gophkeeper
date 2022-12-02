@@ -3,40 +3,8 @@ package client
 import (
 	"fmt"
 
-	"github.com/iryzzh/gophkeeper/internal/tui"
-
 	"github.com/urfave/cli/v2"
 )
-
-func (c *Client) isInitialised(_ *cli.Context) error {
-	if c.userUUID != "" {
-		return nil
-	}
-
-	fmt.Print(logo)
-	fmt.Sprintln("🌟 Welcome to Gophkeeper!")
-	fmt.Println("No existing configuration found.")
-	fmt.Println("☝ Please run 'gophkeeper init'")
-
-	return fmt.Errorf("not initialised")
-}
-
-func (c *Client) askForCredentials() (remote, login, password string, err error) {
-	remote, err = tui.AskString("remote:", c.buildSuggestion("remote"))
-	if err != nil {
-		return "", "", "", err
-	}
-	login, err = tui.AskString("login:", c.buildSuggestion("login"))
-	if err != nil {
-		return "", "", "", err
-	}
-	password, err = tui.AskPassword()
-	if err != nil {
-		return "", "", "", err
-	}
-
-	return remote, login, password, nil
-}
 
 func (c *Client) getCommands() []*cli.Command {
 	return []*cli.Command{
@@ -51,9 +19,9 @@ func (c *Client) getCommands() []*cli.Command {
 					Usage:   "Remote server for data synchronisation",
 				},
 				&cli.StringFlag{
-					Name:    "login",
-					Aliases: []string{"l"},
-					Usage:   "Login",
+					Name:    "user",
+					Aliases: []string{"u"},
+					Usage:   "User",
 				},
 				&cli.StringFlag{
 					Name:    "password",
@@ -63,9 +31,9 @@ func (c *Client) getCommands() []*cli.Command {
 			},
 		},
 		{
-			Name:   "login",
-			Usage:  "Authenticate to a remote",
-			Action: c.login,
+			Name:   "auth",
+			Usage:  "Log on to a remote server",
+			Action: c.auth,
 			Flags: []cli.Flag{
 				&cli.StringFlag{
 					Name:    "remote",
@@ -73,9 +41,9 @@ func (c *Client) getCommands() []*cli.Command {
 					Usage:   "Remote server to authenticate with",
 				},
 				&cli.StringFlag{
-					Name:    "login",
-					Aliases: []string{"l"},
-					Usage:   "Login",
+					Name:    "user",
+					Aliases: []string{"u"},
+					Usage:   "User",
 				},
 				&cli.StringFlag{
 					Name:    "password",
@@ -88,7 +56,7 @@ func (c *Client) getCommands() []*cli.Command {
 			Name:   "add",
 			Usage:  "Add an entry",
 			Action: c.entryNew,
-			Before: c.isInitialised,
+			Before: c.isInitialized,
 			Flags: []cli.Flag{
 				&cli.StringFlag{
 					Name:    "name",
@@ -101,11 +69,45 @@ func (c *Client) getCommands() []*cli.Command {
 					Usage:   "Value of the entry",
 				},
 				&cli.StringFlag{
-					Name:    "type",
-					Aliases: []string{"t"},
+					Name: "type",
 					Usage: "Type of the entry." +
-						" Should be one of: text, file, image or card (bank card)",
-					Value: "text",
+						" Should be one of: text, file or image",
+					Value:   "text",
+					Aliases: []string{"t"},
+				},
+			},
+			Subcommands: []*cli.Command{
+				{
+					Name:   "card",
+					Usage:  "add a new bank card",
+					Before: c.isInitialized,
+					Action: c.entryNewCard,
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:    "name",
+							Aliases: []string{"n"},
+							Usage:   "Name of the entry",
+						},
+						&cli.StringFlag{
+							Name:    "type",
+							Aliases: []string{"t"},
+							Usage:   "Type of the card, e.g. 'Visa'",
+						},
+						&cli.StringFlag{
+							Name:    "number",
+							Aliases: []string{"cn"},
+							Usage:   "Number of the card",
+						},
+						&cli.StringFlag{
+							Name:    "exp",
+							Aliases: []string{"e"},
+							Usage:   "Expiration date MM/DD, e.g. '12/23'",
+						},
+						&cli.StringFlag{
+							Name:  "cvv",
+							Usage: "CVV",
+						},
+					},
 				},
 			},
 		},
@@ -113,40 +115,34 @@ func (c *Client) getCommands() []*cli.Command {
 			Name:   "view",
 			Usage:  "View entries",
 			Action: c.entryView,
-			Before: c.isInitialised,
+			Before: c.isInitialized,
 		},
 		{
 			Name:    "list",
 			Aliases: []string{"ls", "l"},
 			Usage:   "List entries",
 			Action:  c.entryList,
-			Before:  c.isInitialised,
+			Before:  c.isInitialized,
 		},
 		{
 			Name:    "delete",
 			Aliases: []string{"rm"},
 			Usage:   "Delete entries",
 			Action:  c.entryDelete,
-			Before:  c.isInitialised,
-		},
-		{
-			Name:   "push",
-			Usage:  "Push local items to a remote server",
-			Action: c.push,
-			Before: c.isInitialised,
-		},
-		{
-			Name:   "pull",
-			Usage:  "Retrieve records from a remote server",
-			Action: c.pull,
-			Before: c.isInitialised,
+			Before:  c.isInitialized,
 		},
 		{
 			Name:    "version",
 			Aliases: []string{"ver"},
 			Usage:   "Show version",
 			Action: func(context *cli.Context) error {
-				fmt.Println("show version is fired")
+				fmt.Printf(
+					"%s has version %s built from %s on %s",
+					c.app.Name,
+					c.cfg.Version.Version,
+					c.cfg.Version.Commit,
+					c.cfg.Version.BuildDate,
+				)
 				return nil
 			},
 		},

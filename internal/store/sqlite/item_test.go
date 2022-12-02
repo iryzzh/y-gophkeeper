@@ -9,21 +9,18 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/google/uuid"
-	"github.com/iryzzh/gophkeeper/internal/models"
-	"github.com/iryzzh/gophkeeper/internal/rand"
-	"github.com/iryzzh/gophkeeper/internal/store"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/rand"
+	"github.com/iryzzh/y-gophkeeper/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
 func TestItemRepository_Create(t *testing.T) {
 	tests := []struct {
-		name     string
-		wantErr  error
-		items    []*models.Item
-		extended sqlite3.ErrNoExtended
+		name    string
+		wantErr error
+		items   []*models.Item
 	}{
 		{
 			name:    "should create a new item",
@@ -39,9 +36,8 @@ func TestItemRepository_Create(t *testing.T) {
 			},
 		},
 		{
-			name:     "item creation should fail - empty meta",
-			wantErr:  store.ErrItemCreateFailed,
-			extended: sqlite3.ErrConstraintCheck,
+			name:    "item creation should fail - empty meta",
+			wantErr: store.ErrItemMetaIsRequired,
 			items: []*models.Item{
 				{
 					UserID: "e030240c-2906-467d-a280-16f9cd197022",
@@ -53,9 +49,8 @@ func TestItemRepository_Create(t *testing.T) {
 			},
 		},
 		{
-			name:     "item creation should fail - unique",
-			wantErr:  store.ErrItemCreateFailed,
-			extended: sqlite3.ErrConstraintUnique,
+			name:    "item creation should fail - unique",
+			wantErr: store.ErrItemExists,
 			items: []*models.Item{
 				{
 					UserID: "e030240c-2906-467d-a280-16f9cd197022",
@@ -74,9 +69,7 @@ func TestItemRepository_Create(t *testing.T) {
 			},
 		},
 		{
-			name:     "item data creation should fail - empty data",
-			wantErr:  store.ErrItemDataCreateFailed,
-			extended: sqlite3.ErrConstraintNotNull,
+			name: "item data creation should not fail - empty data",
 			items: []*models.Item{
 				{
 					UserID: "e030240c-2906-467d-a280-16f9cd197022",
@@ -103,17 +96,8 @@ func TestItemRepository_Create(t *testing.T) {
 					return true
 				}
 
-				if assert.ErrorContains(t, err, tt.wantErr.Error()) {
-					switch vErr := errors.Cause(err).(type) {
-					case sqlite3.Error:
-						return vErr.ExtendedCode == tt.extended
-					default:
-						t.Fatalf("unimplemented error: %v", vErr)
-					}
-				}
-
-				return false
-			}, "Create failed: expected %v, got %v", tt.wantErr, err)
+				return errors.Is(err, tt.wantErr)
+			}, "Create failed: expected = %v, got = %v", tt.wantErr, err)
 		})
 	}
 }
@@ -163,15 +147,15 @@ func TestItemRepository_FindByUserID(t *testing.T) {
 			defer func() { _ = r.db.Close() }()
 
 			genItems := generateTestItems(t, r.db, tt.userID, tt.count)
-			items, pages, err := r.FindByUserID(context.Background(), tt.userID, 1)
-			require.Equal(t, tt.wantErr == nil, err == nil)
+
 			if tt.wantErr == nil {
 				var allItems []*models.Item
-				allItems = append(allItems, items...)
-				for page := 2; page <= pages; page++ {
-					items, _, err = r.FindByUserID(context.Background(), tt.userID, page)
-					require.NoError(t, err)
-					allItems = append(allItems, items...)
+				for i := 0; i < len(genItems); i++ {
+					if i%10 == 0 {
+						items, err := r.FindByUserID(context.Background(), tt.userID, 10, i)
+						require.Equal(t, tt.wantErr == nil, err == nil)
+						allItems = append(allItems, items.Data...)
+					}
 				}
 				require.Equal(t, tt.count, len(allItems))
 				require.Equal(t, allItems, genItems)
@@ -265,9 +249,8 @@ func TestItemRepository_Update(t *testing.T) {
 			}(),
 		},
 		{
-			name:     "item empty meta",
-			wantErr:  store.ErrItemUpdateFailed,
-			extended: sqlite3.ErrConstraintCheck,
+			name:    "item empty meta",
+			wantErr: store.ErrItemMetaIsRequired,
 			item: func() *models.Item {
 				item := sampleItem(t, uuid.NewString())
 				r := &ItemRepository{
@@ -306,16 +289,7 @@ func TestItemRepository_Update(t *testing.T) {
 					return true
 				}
 
-				if assert.ErrorContains(t, err, tt.wantErr.Error()) {
-					switch vErr := errors.Cause(err).(type) {
-					case sqlite3.Error:
-						return vErr.ExtendedCode == tt.extended
-					default:
-						return vErr.Error() == tt.wantErr.Error()
-					}
-				}
-
-				return false
+				return errors.Is(err, tt.wantErr)
 			}, "Update failed: expected %v, got %v", tt.wantErr, err)
 		})
 	}

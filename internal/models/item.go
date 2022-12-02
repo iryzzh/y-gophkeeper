@@ -1,7 +1,10 @@
 package models
 
 import (
+	"encoding/base64"
 	"time"
+
+	jsoniter "github.com/json-iterator/go"
 )
 
 // Item is the model of the item. The fields `Item.ID`,
@@ -28,11 +31,36 @@ type ItemData struct {
 	Data []byte `json:"data"`
 }
 
-type ItemResponse struct {
-	Meta meta    `json:"meta,omitempty"`
+type Items struct {
+	Meta Meta    `json:"meta,omitempty"`
 	Data []*Item `json:"data"`
 }
 
-type meta struct {
-	TotalPages int `json:"totalPages"`
+type Meta struct {
+	TotalItems int `json:"totalItems"`
+}
+
+func (i *Item) Marshal() ([]byte, error) {
+	var json = jsoniter.ConfigFastest
+	return json.Marshal(&i)
+}
+
+func (id *ItemData) DecodeDataToString() (string, error) {
+	buf := make([]byte, base64.StdEncoding.DecodedLen(len(id.Data)))
+	_, err := base64.StdEncoding.Decode(buf, id.Data)
+	if err != nil {
+		return "", err
+	}
+
+	return string(buf), nil
+}
+
+func (id *ItemData) DecodeDataToBytes() ([]byte, error) {
+	buf := make([]byte, base64.StdEncoding.DecodedLen(len(id.Data)))
+	_, err := base64.StdEncoding.Decode(buf, id.Data)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf, nil
 }

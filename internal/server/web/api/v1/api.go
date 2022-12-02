@@ -2,17 +2,15 @@ package v1
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"strconv"
 
-	"github.com/iryzzh/gophkeeper/internal/services/item"
+	"github.com/iryzzh/y-gophkeeper/internal/services/item"
 	"golang.org/x/net/context"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/iryzzh/gophkeeper/internal/models"
-	"github.com/iryzzh/gophkeeper/internal/services/token"
-	"github.com/iryzzh/gophkeeper/internal/services/user"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/services/token"
+	"github.com/iryzzh/y-gophkeeper/internal/services/user"
 	"github.com/pkg/errors"
 )
 
@@ -48,14 +46,15 @@ func (a *API) Register(r *chi.Mux) {
 		r.Post("/login", a.login)
 		r.Post("/token/refresh", a.tokenRefresh)
 
+		r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
 		// protected
 		r.Group(func(r chi.Router) {
 			r.Use(a.Auth)
-			r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusOK)
-			})
 			r.Route("/item", func(r chi.Router) {
-				r.With(pagination).Get("/", a.itemGet)
+				r.Get("/", a.itemGet)
 				r.Get("/{id}", a.itemGet)
 				r.With(itemCtx).Put("/", a.itemNew)
 				r.With(itemCtx).Post("/{id}", a.itemSet)
@@ -83,41 +82,31 @@ func itemCtx(next http.Handler) http.Handler {
 	})
 }
 
-func pagination(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		page := r.URL.Query().Get("page")
-		intPage := 1
-		if page != "" {
-			var err error
-			intPage, err = strconv.Atoi(page)
-			if err != nil {
-				http.Error(w, fmt.Sprintf("couldn't read page '%s': invalid syntax", page),
-					http.StatusBadRequest)
-				return
-			}
-		}
-		ctx := context.WithValue(r.Context(), ctxPageID, intPage)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
 // signup matches the received login/password pair with the
 // `models.User` struct, generates an encrypted password, creates
 // the user in the database and, if successful, returns a new `models.Token`.
 func (a *API) signup(w http.ResponseWriter, r *http.Request) {
-	var u models.User
-	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+	var newUser *models.User
+	if err := json.NewDecoder(r.Body).Decode(&newUser); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	create, code, err := a.userSvc.Create(r.Context(), u.Login, u.Password)
+	err := a.userSvc.Create(r.Context(), newUser)
+	if errors.Is(err, user.ErrInvalidUser) || errors.Is(err, user.ErrPasswordCannotBeEmpty) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if errors.Is(err, user.ErrUserExists) {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	if err != nil {
-		http.Error(w, err.Error(), code)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	t, err := a.tokenSvc.Create(r.Context(), create)
+	t, err := a.tokenSvc.Create(r.Context(), newUser)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -173,22 +162,8 @@ func (a *API) tokenRefresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	fmt.Printf("api sent: %v", newToken)
 
 	WriteJSON(w, newToken, http.StatusCreated)
-}
-
-// itemResponse is used in the 'API.itemGet' handler
-// responses, adding the 'meta.TotalPages' field to
-// the 'models.Item' model. This field is used for
-// pagination.
-type itemResponse struct {
-	Meta meta           `json:"meta,omitempty"`
-	Data []*models.Item `json:"data"`
-}
-
-type meta struct {
-	TotalPages int `json:"totalPages"`
 }
 
 // itemGet is a handler for incoming 'GET' requests to retrieve user
@@ -197,36 +172,44 @@ type meta struct {
 // If a specific ID is specified as the path, the `models.Item` is
 // returned if it exists.
 //
-// If a page number is specified as the query `?page=id`, the
-// `[]models.Item` slice is returned.
+// If a page number is specified as the query `?limit=n&offset=n`, the
+// `models.Items` is returned.
 func (a *API) itemGet(w http.ResponseWriter, r *http.Request) {
-	if userID, ok := r.Context().Value(ctxUserID).(string); ok {
-		if chi.URLParam(r, "id") != "" {
-			byID, err := a.itemSvc.FindByID(r.Context(), userID, chi.URLParam(r, "id"))
-			if err != nil {
-				if errors.Is(err, item.ErrItemNotFound) {
-					http.Error(w, err.Error(), http.StatusNotFound)
-					return
-				}
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+	var userID string
+	var ok bool
+	if userID, ok = r.Context().Value(ctxUserID).(string); !ok {
+		http.Error(w, "", http.StatusBadRequest)
+	}
+	if chi.URLParam(r, "id") != "" {
+		foundItem, err := a.itemSvc.FindByID(r.Context(), userID, chi.URLParam(r, "id"))
+		if err != nil {
+			if errors.Is(err, item.ErrItemNotFound) {
+				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			WriteJSON(w, itemResponse{Data: []*models.Item{byID}}, http.StatusOK)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		page := r.Context().Value(ctxPageID)
-		items, pages, err := a.itemSvc.FindByUserID(r.Context(), userID, page)
-		if err == nil {
-			WriteJSON(w, itemResponse{Meta: meta{TotalPages: pages}, Data: items}, http.StatusOK)
-			return
-		}
-		if errors.Is(err, item.ErrItemNotFound) {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
+		WriteJSON(w, foundItem, http.StatusOK)
+		return
 	}
-	http.Error(w, "", http.StatusBadRequest)
+
+	items, err := a.itemSvc.FindByUserID(
+		r.Context(),
+		userID,
+		r.URL.Query().Get("limit"),
+		r.URL.Query().Get("offset"),
+	)
+	if err == nil {
+		WriteJSON(w, items, http.StatusOK)
+		return
+	}
+	if errors.Is(err, item.ErrItemNotFound) {
+		http.Error(w, err.Error(), http.StatusNoContent)
+		return
+	}
+
+	http.Error(w, err.Error(), http.StatusBadRequest)
 }
 
 func (a *API) itemNew(w http.ResponseWriter, r *http.Request) {

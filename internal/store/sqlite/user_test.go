@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/iryzzh/gophkeeper/internal/models"
-	"github.com/iryzzh/gophkeeper/internal/store"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/store"
 )
 
 func makeUser(tb testing.TB, id ...string) *models.User {
@@ -40,11 +40,6 @@ func TestUserRepository_Create(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:    "create failed",
-			want:    &models.User{},
-			wantErr: store.ErrUserCreateFailed,
-		},
-		{
 			name:    "already exist",
 			want:    makeUser(t),
 			wantErr: store.ErrUserAlreadyExists,
@@ -58,17 +53,13 @@ func TestUserRepository_Create(t *testing.T) {
 			defer func() { _ = r.db.Close() }()
 
 			if tt.wantErr == store.ErrUserAlreadyExists {
-				_, _ = r.Create(context.Background(), tt.want)
+				_ = r.Create(context.Background(), tt.want)
 			}
 
-			got, err := r.Create(context.Background(), tt.want)
+			err := r.Create(context.Background(), tt.want)
 			if err != tt.wantErr {
 				t.Errorf("Create() error = %v, wantErr %v", err, tt.wantErr)
 				return
-			}
-
-			if tt.wantErr == nil && !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Create() got = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -99,7 +90,7 @@ func TestUserRepository_FindByID(t *testing.T) {
 			defer func() { _ = r.db.Close() }()
 
 			if tt.wantErr != store.ErrUserNotFound {
-				_, err := r.Create(context.Background(), tt.want)
+				err := r.Create(context.Background(), tt.want)
 				if err != tt.wantErr {
 					t.Errorf("Create() error = %v, wantErr %v", err, tt.wantErr)
 					return
@@ -148,7 +139,7 @@ func TestUserRepository_FindByLogin(t *testing.T) {
 			defer func() { _ = r.db.Close() }()
 
 			if tt.wantErr != store.ErrUserNotFound {
-				_, err := r.Create(context.Background(), tt.want)
+				err := r.Create(context.Background(), tt.want)
 				if err != tt.wantErr {
 					t.Errorf("Create() error = %v, wantErr %v", err, tt.wantErr)
 					return

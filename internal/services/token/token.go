@@ -3,11 +3,12 @@ package token
 import (
 	"crypto"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/iryzzh/gophkeeper/internal/models"
-	"github.com/iryzzh/gophkeeper/internal/store"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/store"
 	"golang.org/x/net/context"
 )
 
@@ -91,7 +92,7 @@ func (s *Service) Create(_ context.Context, user *models.User) (*models.Token, e
 // Validate validates the token.
 func (s *Service) Validate(_ context.Context, tokenStr string) (*models.Token, error) {
 	var err error
-	if token, err := parseJWT(tokenStr, s.accessSecret); err == nil {
+	if token, err := parseWithClaims(tokenStr, s.accessSecret); err == nil {
 		if claims, ok := token.Claims.(*claims); ok && token.Valid {
 			return &models.Token{
 				Login:  claims.Login,
@@ -103,9 +104,22 @@ func (s *Service) Validate(_ context.Context, tokenStr string) (*models.Token, e
 	return nil, err
 }
 
-// parseJWT parses, validates, verifies the token with the specified cryptographic key
+// ParseUserIDFromToken returns the user id from the received token.
+func ParseUserIDFromToken(tokenStr string) (userID string, err error) {
+	token, _ := jwt.Parse(tokenStr, nil)
+
+	mapClaims, _ := token.Claims.(jwt.MapClaims)
+
+	var ok bool
+	if userID, ok = mapClaims["user_id"].(string); !ok {
+		return userID, fmt.Errorf("invalid user_id in jwt")
+	}
+	return userID, nil
+}
+
+// parseWithClaims parses, validates, verifies the token with the specified cryptographic key
 // for verifying the signature and returns the parsed token.
-func parseJWT(tokenStr string, secret []byte) (*jwt.Token, error) {
+func parseWithClaims(tokenStr string, secret []byte) (*jwt.Token, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &claims{}, func(token *jwt.Token) (interface{}, error) {
 		if s, ok := token.Method.(*jwt.SigningMethodHMAC); !ok || s.Hash != crypto.SHA256 {
 			return nil, ErrTokenBadSigningMethod
@@ -125,7 +139,7 @@ func parseJWT(tokenStr string, secret []byte) (*jwt.Token, error) {
 // Refresh refreshes the token.
 func (s *Service) Refresh(ctx context.Context, tokenStr string) (*models.Token, error) {
 	var err error
-	if token, err := parseJWT(tokenStr, s.refreshSecret); err == nil {
+	if token, err := parseWithClaims(tokenStr, s.refreshSecret); err == nil {
 		if claims, ok := token.Claims.(*claims); ok && token.Valid {
 			user, err := s.store.User().FindByID(ctx, claims.UserID)
 			if err != nil {

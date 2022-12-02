@@ -31,4 +31,6 @@ var (
 	ErrItemDeleteFailed = errors.New("item delete failed")
 	// ErrItemDataDeleteFailed returns when the item data delete failed.
 	ErrItemDataDeleteFailed = errors.New("item data delete failed")
+	// ErrItemMetaIsRequired returns when the item meta is nil.
+	ErrItemMetaIsRequired = errors.New("meta is required")
 )

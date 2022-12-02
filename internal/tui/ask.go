@@ -1,3 +1,4 @@
+//nolint:gomnd
 package tui
 
 import (
@@ -6,31 +7,102 @@ import (
 	"path/filepath"
 
 	"github.com/AlecAivazis/survey/v2"
-	"github.com/iryzzh/gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
 )
 
-func AskString(message string, suggest func(string) []string) (string, error) {
-	prompt := &survey.Input{
-		Message: message,
-		Suggest: suggest,
+func AskInit(m *models.Init) error {
+	var qs = []*survey.Question{
+		{
+			Name:     "remote",
+			Prompt:   &survey.Input{Message: "Remote:"},
+			Validate: survey.Required,
+		},
+		{
+			Name:     "user",
+			Prompt:   &survey.Input{Message: "User:"},
+			Validate: survey.Required,
+		},
+		{
+			Name:     "password",
+			Prompt:   &survey.Password{Message: "password:"},
+			Validate: survey.Required,
+		},
 	}
 
-	return askOne(prompt)
+	answers := struct {
+		Remote   string `survey:"remote"`
+		User     string `survey:"user"`
+		Password string `survey:"password"`
+	}{}
+
+	if err := survey.Ask(qs, &answers, survey.WithIcons(func(set *survey.IconSet) {
+		set.Question.Text = ">>"
+	})); err != nil {
+		return err
+	}
+
+	m.Remote = answers.Remote
+	m.User.Login = answers.User
+	m.User.Password = answers.Password
+
+	return nil
 }
 
-func AskSelect(message string, options []string, def string) (string, error) {
-	prompt := &survey.Select{
-		Message: message,
-		Options: options,
-		Default: def,
+func AskEntry(m *models.Entry) error {
+	var name, entryType, entryValue string
+	var err error
+
+	name, err = askOne(&survey.Input{Message: "name:"})
+	if err != nil {
+		return err
 	}
 
-	return askOne(prompt)
+	entryType, err = askOne(&survey.Select{
+		Message: "entry type:",
+		Options: []string{
+			models.EntryTypeText,
+			models.EntryTypeFile,
+			models.EntryTypeImage,
+		},
+		Default: models.EntryTypeText,
+	})
+	if err != nil {
+		return err
+	}
+
+	if entryType == models.EntryTypeText {
+		entryValue, err = askOne(&survey.Input{Message: "value:"})
+		if err != nil {
+			return err
+		}
+	} else {
+		entryValue, err = AskFile("file:")
+		if err != nil {
+			return err
+		}
+	}
+
+	m.Value = entryValue
+	m.Name = name
+	m.EntryType = entryType
+
+	return nil
+}
+
+func AskConfirm(message string, answer *bool) error {
+	prompt := &survey.Confirm{
+		Message: message,
+	}
+
+	return survey.AskOne(prompt, answer)
 }
 
 func askOne(prompt survey.Prompt) (string, error) {
 	output := ""
-	err := survey.AskOne(prompt, &output, survey.WithValidator(survey.Required))
+	err := survey.AskOne(prompt, &output, survey.WithValidator(survey.Required),
+		survey.WithIcons(func(set *survey.IconSet) {
+			set.Question.Text = ">>"
+		}))
 
 	return output, err
 }
@@ -80,18 +152,13 @@ func AskFile(message string, validate ...bool) (string, error) {
 	return file, err
 }
 
-func AskPassword() (string, error) {
-	password := ""
-	prompt := &survey.Password{
-		Message: "password:",
-	}
-	err := survey.AskOne(prompt, &password)
-
-	return password, err
-}
-
-func AskCard() (models.Card, error) {
+func AskCard(m *models.Card) (string, error) {
 	qs := []*survey.Question{
+		{
+			Name:     "name",
+			Prompt:   &survey.Input{Message: "Name:"},
+			Validate: survey.Required,
+		},
 		{
 			Name:      "type",
 			Prompt:    &survey.Input{Message: "Card type:"},
@@ -106,36 +173,67 @@ func AskCard() (models.Card, error) {
 				if len(v) < 15 || len(v) > 19 {
 					return fmt.Errorf("invalid card number length")
 				}
-				return isValidLuhn(ans)
+				return models.IsValidLuhn(ans)
 			},
 		},
 		{
-			Name:     "expiryMonth",
-			Prompt:   &survey.Input{Message: "Expiry Month:"},
-			Validate: isValidMonthYear,
+			Name:   "month",
+			Prompt: &survey.Input{Message: "Month:"},
+			Validate: func(ans interface{}) error {
+				v, _ := ans.(string)
+				if len(v) != 2 {
+					return fmt.Errorf("invalid month length")
+				}
+
+				return nil
+			},
 		},
 		{
-			Name:     "expiryYear",
-			Prompt:   &survey.Input{Message: "Expiry Year:"},
-			Validate: isValidMonthYear,
+			Name:   "year",
+			Prompt: &survey.Input{Message: "Year:"},
+			Validate: func(ans interface{}) error {
+				v, _ := ans.(string)
+				if len(v) != 2 {
+					return fmt.Errorf("invalid year length")
+				}
+
+				return nil
+			},
 		},
 		{
-			Name:     "ccv",
-			Prompt:   &survey.Input{Message: "CCV:"},
-			Validate: isValidCCV,
+			Name:   "cvv",
+			Prompt: &survey.Input{Message: "CVV:"},
+			Validate: func(ans interface{}) error {
+				v, _ := ans.(string)
+				if len(v) < 2 || len(v) > 4 {
+					return fmt.Errorf("invalid cvv length")
+				}
+
+				return nil
+			},
 		},
 	}
 
-	var card models.Card
-	if err := survey.Ask(qs, &card); err != nil {
-		return models.Card{}, err
+	answers := struct {
+		Name   string `survey:"name"`
+		Type   string `survey:"type"`
+		Number string `survey:"number"`
+		Month  string `survey:"month"`
+		Year   string `survey:"year"`
+		CVV    string `survey:"cvv"`
+	}{}
+
+	if err := survey.Ask(qs, &answers, survey.WithIcons(func(set *survey.IconSet) {
+		set.Question.Text = ">>"
+	})); err != nil {
+		return "", err
 	}
 
-	return card, nil
-}
+	m.Type = answers.Type
+	m.Number = answers.Number
+	m.Month = answers.Month
+	m.Year = answers.Year
+	m.CVV = answers.CVV
 
-type EntryAnswer struct {
-	Name      string `survey:"name"`
-	Value     string `survey:"value"`
-	ValueType string `survey:"type"`
+	return answers.Name, nil
 }

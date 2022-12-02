@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/iryzzh/gophkeeper/internal/models"
+	"github.com/iryzzh/y-gophkeeper/internal/models"
 	"golang.org/x/net/context"
 )
 
@@ -42,15 +42,15 @@ func (a *API) verifyRequest(r *http.Request, findTokenFns ...func(r *http.Reques
 	return a.tokenSvc.Validate(r.Context(), tokenString)
 }
 
-//// tokenFromCookie tries to retrieve the token string from a cookie named
-//// "jwt".
+// // tokenFromCookie tries to retrieve the token string from a cookie named
+// // "jwt".
 // func tokenFromCookie(r *http.Request) string {
 //	cookie, err := r.Cookie("jwt")
 //	if err != nil {
 //		return ""
 //	}
 //	return cookie.Value
-//}
+// }
 
 // tokenFromHeader tries to retrieve the token string from the
 // "Authorization" request header: "Authorization: BEARER T".
